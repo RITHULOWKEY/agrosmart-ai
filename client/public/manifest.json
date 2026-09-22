@@ -1,0 +1,10 @@
+{
+  "name": "Chennai AgroSmart AI",
+  "short_name": "AgroSmart AI",
+  "description": "Explainable farm intelligence for Chennai and Tamil Nadu.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f8f2",
+  "theme_color": "#183e2b",
+  "icons": []
+}
