@@ -24,7 +24,7 @@ export function ensembleRecommendation(input?: { soilType?: string; crop?: strin
   return {
     waterMm: 28,
     recommendedTime: "06:00",
-    confidence: 86,
+    confidence: null,
     harvestRecommendation: "Best harvest window: Day 24",
     agentResults: [soil, plant, weather, market],
     reasoning: ["Clay soil baseline: 25mm", "Healthy plant adjustment: -15%", "Hot weather adjustment: +30%"],

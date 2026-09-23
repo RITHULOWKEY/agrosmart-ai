@@ -7,7 +7,7 @@ describe("ensembleRecommendation", () => {
     expect(result.mode).toBe("demo");
     expect(result.waterMm).toBe(28);
     expect(result.recommendedTime).toBe("06:00");
-    expect(result.confidence).toBe(86);
+    expect(result.confidence).toBeNull();
     expect(result.agentResults).toHaveLength(4);
     expect(result.reasoning).toEqual([
       "Clay soil baseline: 25mm",

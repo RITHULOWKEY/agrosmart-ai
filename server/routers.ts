@@ -12,8 +12,8 @@ import { createLocalSession, hashPassword, LOCAL_SESSION_COOKIE, verifyPassword 
 import { storagePut } from "./storage";
 
 const emailSchema = z.string().trim().toLowerCase().email().max(320);
-const cropSchema = z.string().trim().min(1).max(80);
-const imageDataSchema = z.string().regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, "Upload a JPG, PNG, or WEBP image.").max(9_000_000);
+const optionalText = (max: number) => z.string().trim().max(max).optional();
+const imageDataSchema = z.string().regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, "Upload a JPG, JPEG, PNG, or WEBP image.").max(9_000_000);
 
 function publicUser(user: NonNullable<Awaited<ReturnType<typeof getUserById>>>) {
   const { passwordHash: _passwordHash, ...safeUser } = user;
@@ -32,8 +32,20 @@ function setLocalSession(ctx: { req: Parameters<typeof getSessionCookieOptions>[
 
 function decodeImageData(data: string) {
   const match = data.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
-  if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "Please upload a JPG, PNG, or WEBP image." });
-  return { contentType: match[1], buffer: Buffer.from(match[2], "base64") };
+  if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "Please upload a JPG, JPEG, PNG, or WEBP image." });
+  const buffer = Buffer.from(match[2], "base64");
+  if (buffer.length < 16) throw new TRPCError({ code: "BAD_REQUEST", message: "This image appears to be empty or corrupted." });
+  const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng = buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const isWebp = buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
+  if (!isJpeg && !isPng && !isWebp) throw new TRPCError({ code: "BAD_REQUEST", message: "This image appears to be corrupted. Please choose another file." });
+  return { contentType: match[1], buffer };
+}
+
+async function saveUploadedImage(userId: number, folder: string, data: string) {
+  const { contentType, buffer } = decodeImageData(data);
+  if (buffer.length > 6 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Image size must be less than 6 MB." });
+  return storagePut(`${userId}/${folder}`, buffer, contentType);
 }
 
 export const appRouter = router({
@@ -67,7 +79,7 @@ export const appRouter = router({
     }),
   }),
   profile: router({
-    update: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(160), preferredLanguage: z.enum(["English", "Tamil"]), })).mutation(async ({ ctx, input }) => {
+    update: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(160), preferredLanguage: z.enum(["English", "Tamil"]) })).mutation(async ({ ctx, input }) => {
       const db = requireDb(await getDb());
       await db.update(users).set(input).where(eq(users.id, ctx.user.id));
       const user = await getUserById(ctx.user.id);
@@ -76,10 +88,10 @@ export const appRouter = router({
     }),
   }),
   intake: router({
-    submitPilot: publicProcedure.input(z.object({ name: z.string().trim().min(2).max(160), phone: z.string().trim().min(6).max(48), email: emailSchema, location: z.string().trim().min(2).max(240), farmSize: z.string().trim().min(1).max(80), crop: cropSchema, language: z.string().trim().min(1).max(32), consent: z.boolean() })).mutation(async ({ input }) => {
+    submitPilot: publicProcedure.input(z.object({ name: z.string().trim().min(2).max(160), phone: z.string().trim().min(6).max(48), email: emailSchema, location: z.string().trim().min(2).max(240), farmSize: z.string().trim().min(1).max(80), crop: z.string().trim().min(1).max(80), language: z.string().trim().min(1).max(32), consent: z.boolean() })).mutation(async ({ input }) => {
       if (!input.consent) throw new TRPCError({ code: "BAD_REQUEST", message: "Consent is required." });
       const db = requireDb(await getDb());
-      await db.insert(pilotApplications).values({ ...input, preferredLanguage: input.language, consent: 1 });
+      await db.insert(pilotApplications).values({ name: input.name, phone: input.phone, email: input.email, location: input.location, farmSize: input.farmSize, crop: input.crop, preferredLanguage: input.language, consent: 1 });
       return { success: true } as const;
     }),
     submitContact: publicProcedure.input(z.object({ name: z.string().trim().min(2).max(160), email: emailSchema, phone: z.string().trim().max(48).optional(), subject: z.string().trim().min(2).max(160), category: z.string().trim().min(1).max(48), message: z.string().trim().min(20).max(5000) })).mutation(async ({ input }) => {
@@ -89,14 +101,50 @@ export const appRouter = router({
     }),
   }),
   analysis: router({
-    create: protectedProcedure.input(z.object({ crop: cropSchema, soilType: z.string().trim().min(1).max(80), plantingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), imageData: imageDataSchema })).mutation(async ({ ctx, input }) => {
-      const { contentType, buffer } = decodeImageData(input.imageData);
-      if (buffer.length > 6 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Image size must be less than 6 MB." });
-      const uploaded = await storagePut(`${ctx.user.id}/analyses/crop`, buffer, contentType);
-      const result = await analyzeCrop(input.imageData, { crop: input.crop, soilType: input.soilType, plantingDate: input.plantingDate });
+    create: protectedProcedure.input(z.object({ crop: optionalText(80), location: optionalText(240), soilType: optionalText(80), growthStage: optionalText(100), plantingDate: optionalText(32), currentSymptoms: optionalText(1200), previousTreatment: optionalText(1200), imageData: imageDataSchema })).mutation(async ({ ctx, input }) => {
       const db = requireDb(await getDb());
-      const inserted = await db.insert(cropAnalyses).values({ userId: ctx.user.id, cropType: result.crop, soilType: input.soilType, plantingDate: input.plantingDate, imageUrl: uploaded.url, healthStatus: result.healthStatus, confidence: result.confidence, possibleIssue: result.possibleIssue, severity: result.severity, wateringAdvice: result.wateringAdvice, recommendation: result.recommendation, mode: result.mode });
-      return { id: Number(inserted[0].insertId), ...result, imageUrl: uploaded.url, soilType: input.soilType, plantingDate: input.plantingDate };
+      let uploaded: { key: string; url: string };
+      try {
+        uploaded = await saveUploadedImage(ctx.user.id, "analyses/crop", input.imageData);
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        console.error("[Analysis] Image storage failed:", error);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "We couldn't save this image. Please try another image." });
+      }
+      let result;
+      try {
+        result = await analyzeCrop(input.imageData, { crop: input.crop, location: input.location, soilType: input.soilType, growthStage: input.growthStage, plantingDate: input.plantingDate, currentSymptoms: input.currentSymptoms, previousTreatment: input.previousTreatment });
+      } catch (error) {
+        console.error("[Analysis] Vision provider failed:", error);
+        throw new TRPCError({ code: "BAD_GATEWAY", message: "We couldn't analyze this image. Please try another clear crop or plant image." });
+      }
+      const inserted = await db.insert(cropAnalyses).values({
+        userId: ctx.user.id,
+        cropType: result.crop,
+        location: input.location || null,
+        soilType: input.soilType || "Not provided",
+        growthStage: input.growthStage || null,
+        plantingDate: input.plantingDate || "Not provided",
+        currentSymptoms: input.currentSymptoms || null,
+        previousTreatment: input.previousTreatment || null,
+        imageUrl: uploaded.url,
+        imageKey: uploaded.key,
+        healthStatus: result.healthStatus,
+        confidence: result.confidence,
+        detectedCondition: result.detectedCondition,
+        possibleIssue: result.possibleIssue,
+        severity: result.severity,
+        immediateAction: result.immediateAction,
+        wateringAdvice: result.wateringAdvice,
+        soilGuidance: result.soilGuidance,
+        pestDiseaseManagement: result.pestDiseaseManagement,
+        preventiveMeasures: result.preventiveMeasures,
+        sustainableFarming: result.sustainableFarming,
+        recommendation: result.recommendation,
+        providerModel: result.providerModel || null,
+        mode: result.mode,
+      });
+      return { id: Number(inserted[0].insertId), ...result, imageUrl: uploaded.url, soilType: input.soilType || "Not provided", plantingDate: input.plantingDate || "Not provided", location: input.location || "Not provided", growthStage: input.growthStage || "Not provided", currentSymptoms: input.currentSymptoms || "Not provided", previousTreatment: input.previousTreatment || "Not provided" };
     }),
     list: protectedProcedure.query(async ({ ctx }) => {
       const db = requireDb(await getDb());
@@ -105,7 +153,7 @@ export const appRouter = router({
     get: protectedProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ ctx, input }) => {
       const db = requireDb(await getDb());
       const result = await db.select().from(cropAnalyses).where(and(eq(cropAnalyses.id, input.id), eq(cropAnalyses.userId, ctx.user.id))).limit(1);
-      if (!result[0]) throw new TRPCError({ code: "NOT_FOUND", message: "This analysis could not be found." });
+      if (!result[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Analysis not found." });
       return result[0];
     }),
   }),
@@ -116,12 +164,10 @@ export const appRouter = router({
       const search = input?.search?.toLowerCase();
       return rows.filter((row) => (!input?.category || input.category === "all" || row.category === input.category) && (!search || `${row.cropName} ${row.description ?? ""}`.toLowerCase().includes(search)));
     }),
-    create: protectedProcedure.input(z.object({ cropName: cropSchema, category: z.enum(["Vegetables", "Fruits", "Cereals", "Flowers", "Other"]), description: z.string().trim().max(500).optional(), imageData: imageDataSchema })).mutation(async ({ ctx, input }) => {
-      const { contentType, buffer } = decodeImageData(input.imageData);
-      if (buffer.length > 6 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Image size must be less than 6 MB." });
-      const uploaded = await storagePut(`${ctx.user.id}/gallery/item`, buffer, contentType);
+    create: protectedProcedure.input(z.object({ cropName: z.string().trim().min(1).max(120), category: z.enum(["Vegetables", "Fruits", "Cereals", "Flowers", "Other"]), description: z.string().trim().max(500).optional(), imageData: imageDataSchema })).mutation(async ({ ctx, input }) => {
+      const uploaded = await saveUploadedImage(ctx.user.id, "gallery/item", input.imageData);
       const db = requireDb(await getDb());
-      const inserted = await db.insert(galleryItems).values({ userId: ctx.user.id, imageUrl: uploaded.url, cropName: input.cropName, category: input.category, description: input.description || null });
+      const inserted = await db.insert(galleryItems).values({ userId: ctx.user.id, imageUrl: uploaded.url, imageKey: uploaded.key, cropName: input.cropName, category: input.category, description: input.description || null });
       return { id: Number(inserted[0].insertId), imageUrl: uploaded.url, cropName: input.cropName, category: input.category, description: input.description || null };
     }),
     remove: protectedProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => {

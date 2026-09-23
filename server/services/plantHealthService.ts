@@ -1,26 +1,50 @@
 import { invokeLLM } from "../_core/llm";
+import { ENV } from "../_core/env";
 
-export type CropData = { crop: string; soilType: string; plantingDate: string };
+export type CropData = {
+  crop?: string;
+  location?: string;
+  soilType?: string;
+  growthStage?: string;
+  plantingDate?: string;
+  currentSymptoms?: string;
+  previousTreatment?: string;
+};
 
 export type PlantHealthResult = {
   crop: string;
-  healthStatus: "Healthy" | "Needs attention" | "Diseased";
+  healthStatus: "Healthy" | "Needs attention" | "Possible disease";
   confidence: number | null;
+  detectedCondition: string;
   possibleIssue: string;
-  wateringAdvice: string;
-  recommendation: string;
   severity: "Low" | "Medium" | "High";
+  immediateAction: string;
+  wateringAdvice: string;
+  soilGuidance: string;
+  pestDiseaseManagement: string;
+  preventiveMeasures: string;
+  sustainableFarming: string;
+  recommendation: string;
   mode: "demo" | "provider";
+  providerModel?: string;
 };
 
+const UNKNOWN_CONDITION = "Unable to confidently identify a specific disease. Please upload a clearer image or consult an agricultural expert.";
+
 const demoResult = (cropData: CropData): PlantHealthResult => ({
-  crop: cropData.crop,
+  crop: cropData.crop || "Unknown plant",
   healthStatus: "Needs attention",
   confidence: null,
+  detectedCondition: "No live vision provider is configured",
   possibleIssue: "No live vision provider is configured",
-  wateringAdvice: "Use the crop's normal schedule and check soil moisture before watering.",
-  recommendation: "This development fallback cannot assess the uploaded image. Configure CROP_ANALYSIS_PROVIDER=llm for a real vision analysis, or connect a validated crop-health model.",
   severity: "Medium",
+  immediateAction: "This development fallback cannot assess the uploaded image. Upload a clearer image after configuring the vision provider.",
+  wateringAdvice: "Use the crop's normal schedule and check soil moisture before watering.",
+  soilGuidance: "Observe soil moisture and plant vigor; avoid adding nutrients without a soil or local agronomy recommendation.",
+  pestDiseaseManagement: "No pest or disease can be identified in fallback mode. Inspect leaves and stems manually or consult an agricultural expert.",
+  preventiveMeasures: "Use clean tools, monitor the crop regularly, and keep a record of visible changes.",
+  sustainableFarming: "Prefer targeted watering, reuse healthy crop residues safely, and avoid unnecessary chemical inputs.",
+  recommendation: "This development fallback cannot assess the uploaded image. Configure the built-in vision provider to generate an image-grounded result.",
   mode: "demo",
 });
 
@@ -34,13 +58,13 @@ async function analyzeWithVisionProvider(imageData: string, cropData: CropData):
     messages: [
       {
         role: "system",
-        content: "You are a cautious agricultural vision assistant. Analyze the provided plant photo and return only the requested JSON. Never claim certainty. If the image is unclear, say Needs attention and explain that the photo needs a clearer follow-up. Recommendations must be practical, general, and avoid dangerous chemical dosage instructions.",
+        content: `You are a cautious agricultural vision assistant. Analyze the provided crop or plant image and return only the requested JSON. Identify the plant from visual evidence, but respect the farmer's supplied crop as a hint rather than a fact. Never invent a disease name. If a specific disease cannot be identified confidently, set detectedCondition exactly to: "${UNKNOWN_CONDITION}". Recommendations must be practical, general, and avoid dangerous chemical dosage instructions. Do not claim weather or location-specific facts unless supplied by the user.`,
       },
       {
         role: "user",
         content: [
-          { type: "image_url", image_url: { url: imageData, detail: "low" } },
-          { type: "text", text: `Crop supplied by the farmer: ${cropData.crop}. Soil: ${cropData.soilType}. Planting date: ${cropData.plantingDate}. Return a concise assessment.` },
+          { type: "image_url", image_url: { url: imageData, detail: "auto" } },
+          { type: "text", text: JSON.stringify({ task: "Identify crop or plant, assess visible health, and generate structured recommendations.", farmerContext: cropData }) },
         ],
       },
     ],
@@ -54,36 +78,38 @@ async function analyzeWithVisionProvider(imageData: string, cropData: CropData):
           additionalProperties: false,
           properties: {
             crop: { type: "string" },
-            healthStatus: { type: "string", enum: ["Healthy", "Needs attention", "Diseased"] },
+            healthStatus: { type: "string", enum: ["Healthy", "Needs attention", "Possible disease"] },
             confidence: { type: "integer", minimum: 0, maximum: 100 },
+            detectedCondition: { type: "string" },
             possibleIssue: { type: "string" },
-            wateringAdvice: { type: "string" },
-            recommendation: { type: "string" },
             severity: { type: "string", enum: ["Low", "Medium", "High"] },
+            immediateAction: { type: "string" },
+            wateringAdvice: { type: "string" },
+            soilGuidance: { type: "string" },
+            pestDiseaseManagement: { type: "string" },
+            preventiveMeasures: { type: "string" },
+            sustainableFarming: { type: "string" },
+            recommendation: { type: "string" },
           },
-          required: ["crop", "healthStatus", "confidence", "possibleIssue", "wateringAdvice", "recommendation", "severity"],
+          required: ["crop", "healthStatus", "confidence", "detectedCondition", "possibleIssue", "severity", "immediateAction", "wateringAdvice", "soilGuidance", "pestDiseaseManagement", "preventiveMeasures", "sustainableFarming", "recommendation"],
         },
       },
     },
-    max_tokens: 600,
+    max_tokens: 1200,
   });
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("The vision provider returned an empty assessment");
-  const parsed = JSON.parse(getTextContent(content)) as PlantHealthResult;
-  if (typeof parsed.confidence !== "number" || parsed.confidence < 0 || parsed.confidence > 100) {
-    throw new Error("The vision provider returned an invalid confidence value");
+  const parsed = JSON.parse(getTextContent(content)) as Omit<PlantHealthResult, "mode" | "providerModel">;
+  if (!parsed.crop || !parsed.healthStatus || !parsed.detectedCondition || typeof parsed.confidence !== "number" || parsed.confidence < 0 || parsed.confidence > 100) {
+    throw new Error("The vision provider returned an incomplete assessment");
   }
-  return { ...parsed, mode: "provider" };
+  return { ...parsed, possibleIssue: parsed.possibleIssue || parsed.detectedCondition, mode: "provider", providerModel: response.model };
 }
 
-/**
- * Set CROP_ANALYSIS_PROVIDER=llm to use the built-in vision-capable model.
- * The default development fallback is intentionally marked and never invents confidence.
- */
+/** The live built-in provider is the default when credentials are available. Set CROP_ANALYSIS_PROVIDER=demo only for local fallback testing. */
 export async function analyzeCrop(imageData: string | undefined, cropData: CropData): Promise<PlantHealthResult> {
-  if (process.env.CROP_ANALYSIS_PROVIDER?.toLowerCase() === "llm" && imageData?.startsWith("data:image/")) {
-    return analyzeWithVisionProvider(imageData, cropData);
-  }
-  return demoResult(cropData);
+  const providerMode = process.env.CROP_ANALYSIS_PROVIDER?.toLowerCase();
+  if (providerMode === "demo" || !ENV.forgeApiKey || !imageData?.startsWith("data:image/")) return demoResult(cropData);
+  return analyzeWithVisionProvider(imageData, cropData);
 }

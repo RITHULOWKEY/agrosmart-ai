@@ -11,6 +11,8 @@ describe("plantHealthService", () => {
       mode: "demo",
     });
     expect(result.possibleIssue).toContain("No live vision provider");
-    expect(result.recommendation).toContain("CROP_ANALYSIS_PROVIDER=llm");
+    expect(result.detectedCondition).toContain("No live vision provider");
+    expect(result.immediateAction).toContain("development fallback");
+    expect(result.sustainableFarming).toContain("targeted watering");
   });
 });
