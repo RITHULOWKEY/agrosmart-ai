@@ -1,5 +1,5 @@
 import PublicLayout from "@/components/PublicLayout";
-import { trpc } from "@/lib/trpc";
+import { api } from "@/lib/api";
 import { CheckCircle2, Loader2, Mail, Sprout } from "lucide-react";
 import { FormEvent, useState } from "react";
 
@@ -10,7 +10,7 @@ export default function About() {
 function InfoCard({ title, text }: { title: string; text: string }) { return <article className="rounded-[1.5rem] border border-[#dce7d9] bg-[#f8faf5] p-6"><h2 className="font-display text-xl font-semibold text-[#234d31]">{title}</h2><p className="mt-3 text-sm leading-6 text-[#718071]">{text}</p></article>; }
 
 export function Contact() {
-  const send = trpc.intake.submitContact.useMutation();
+  const send = api.intake.submitContact.useMutation();
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setError(""); const data = new FormData(event.currentTarget); try { await send.mutateAsync({ name: String(data.get("name")), email: String(data.get("email")), subject: String(data.get("subject")), category: String(data.get("category")), message: String(data.get("message")) }); setSent(true); event.currentTarget.reset(); } catch (err) { setError(err instanceof Error ? err.message : "We couldn't send your message."); } };

@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { trpc } from "@/lib/trpc";
+import { api } from "@/lib/api";
 import { ArrowRight, Camera, CheckCircle2, Clock3, GalleryHorizontalEnd, Leaf, Loader2, Sprout } from "lucide-react";
 import { Link } from "wouter";
 
@@ -8,8 +8,8 @@ type Analysis = { id: number; cropType: string; healthStatus: string; confidence
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { data, isLoading, isError } = trpc.analysis.list.useQuery();
-  const { data: gallery } = trpc.gallery.list.useQuery(undefined, { enabled: Boolean(user) });
+  const { data, isLoading, isError } = api.analysis.list.useQuery();
+  const { data: gallery } = api.gallery.list.useQuery(undefined, { enabled: Boolean(user) });
   const analyses = (data ?? []) as Analysis[];
   const latest = analyses[0];
   const displayName = user?.name?.split(" ")[0] ?? "there";

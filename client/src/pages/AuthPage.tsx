@@ -1,5 +1,5 @@
 import { startLogin } from "@/const";
-import { trpc } from "@/lib/trpc";
+import { api } from "@/lib/api";
 import { ArrowLeft, Eye, EyeOff, Leaf, Loader2, Sprout } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -7,12 +7,12 @@ import { toast } from "sonner";
 
 export default function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [, setLocation] = useLocation();
-  const utils = trpc.useUtils();
+  const utils = api.useUtils();
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const [error, setError] = useState("");
-  const login = trpc.auth.login.useMutation({ onSuccess: (user) => { utils.auth.me.setData(undefined, user); setLocation("/dashboard"); } });
-  const register = trpc.auth.register.useMutation({ onSuccess: (user) => { utils.auth.me.setData(undefined, user); toast.success("Account created successfully."); setLocation("/dashboard"); } });
+  const login = api.auth.login.useMutation({ onSuccess: (user: any) => { utils.auth.me.setData(undefined, user); setLocation("/dashboard"); } });
+  const register = api.auth.register.useMutation({ onSuccess: (user: any) => { utils.auth.me.setData(undefined, user); toast.success("Account created successfully."); setLocation("/dashboard"); } });
   const mutation = mode === "login" ? login : register;
   const backendMessage = mutation.error?.message ?? "";
   const friendlyBackendError = backendMessage.includes("already exists") ? "An account with this email already exists." : backendMessage.includes("incorrect") ? "Email or password is incorrect." : backendMessage.includes("Passwords do not match") ? "Passwords do not match." : backendMessage ? "We couldn't complete that request. Please try again." : "";

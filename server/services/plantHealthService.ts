@@ -98,8 +98,12 @@ async function analyzeWithVisionProvider(imageData: string, cropData: CropData):
     max_tokens: 1200,
   });
 
-  const content = response.choices[0]?.message?.content;
-  if (!content) throw new Error("The vision provider returned an empty assessment");
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) {
+    const providerError = (response as unknown as { error?: { message?: string } }).error?.message;
+    console.error("[Crop analysis] Vision provider returned no usable choices", { keys: Object.keys(response), providerError });
+    throw new Error(providerError || "The vision provider returned an empty assessment");
+  }
   const parsed = JSON.parse(getTextContent(content)) as Omit<PlantHealthResult, "mode" | "providerModel">;
   if (!parsed.crop || !parsed.healthStatus || !parsed.detectedCondition || typeof parsed.confidence !== "number" || parsed.confidence < 0 || parsed.confidence > 100) {
     throw new Error("The vision provider returned an incomplete assessment");

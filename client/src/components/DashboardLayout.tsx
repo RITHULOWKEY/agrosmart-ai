@@ -2,7 +2,6 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { Camera, GalleryHorizontalEnd, LayoutDashboard, LogOut, PanelLeft, Settings, Sprout, Clock3 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -18,7 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { loading, user } = useAuth();
   useEffect(() => { try { localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString()); } catch {} }, [sidebarWidth]);
   if (loading) return <DashboardLayoutSkeleton />;
-  if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#f8f8f2] p-6"><div className="w-full max-w-md rounded-[2rem] border border-[#dce7d9] bg-white p-8 text-center shadow-sm"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#d8ecce] text-[#1e6b3d]"><Sprout className="h-7 w-7" /></span><h1 className="mt-6 font-display text-2xl font-semibold text-[#234d31]">Sign in to continue</h1><p className="mt-3 text-sm leading-6 text-[#718071]">This workspace is private. Sign in to access your analyses, gallery, and profile.</p><Button onClick={() => startLogin()} size="lg" className="mt-7 w-full bg-[#1d6a3b] hover:bg-[#15562f]">Sign in</Button></div></div>;
+  if (!user) return <div className="flex min-h-screen items-center justify-center bg-[#f8f8f2] p-6"><div className="w-full max-w-md rounded-[2rem] border border-[#dce7d9] bg-white p-8 text-center shadow-sm"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#d8ecce] text-[#1e6b3d]"><Sprout className="h-7 w-7" /></span><h1 className="mt-6 font-display text-2xl font-semibold text-[#234d31]">Sign in to continue</h1><p className="mt-3 text-sm leading-6 text-[#718071]">This workspace is private. Sign in to access your analyses, gallery, and profile.</p><Button onClick={() => { window.location.href = "/login"; }} size="lg" className="mt-7 w-full bg-[#1d6a3b] hover:bg-[#15562f]">Sign in</Button></div></div>;
   return <SidebarProvider style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}><DashboardLayoutContent setSidebarWidth={setSidebarWidth}>{children}</DashboardLayoutContent></SidebarProvider>;
 }
 
